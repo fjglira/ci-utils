@@ -1,0 +1,18 @@
+{
+  "provider": "vertex_ai",
+  "default_model": "claude-sonnet-4",
+  "output_format": "json",
+  "mcp_servers": {
+    "reportportal": {
+      "url": "PLACEHOLDER_RP_URL",
+      "token": "PLACEHOLDER_RP_TOKEN",
+      "project": "${REPORTPORTAL_PROJECT}"
+    }
+  },
+  "skills": {
+    "ossm-confidence": {
+      "enabled": true,
+      "auto_run": true
+    }
+  }
+}

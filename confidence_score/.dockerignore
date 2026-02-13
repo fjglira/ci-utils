@@ -1,0 +1,18 @@
+# Docker build optimization
+.git
+.gitignore
+README.md
+.env*
+reports/
+*.log
+*.tmp
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

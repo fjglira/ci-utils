@@ -1,0 +1,24 @@
+# Secret files - NEVER commit these!
+secrets/
+*.key
+*.token
+*_api_key
+*_secret
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+
+# Runtime files
+reports/
+logs/
+*.log
+
+# Temporary files
+*.tmp
+temp/
+
+# Development
+.vscode/
+.idea/
