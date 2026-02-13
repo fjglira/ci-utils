@@ -1,0 +1,60 @@
+# OSSM Release Confidence Score Container (Free Claude API)
+# Uses Debian base with Claude Code CLI + Free Claude API
+
+FROM debian:bookworm-slim
+
+# Install required dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    bash \
+    ca-certificates \
+    jq \
+    git \
+    gettext-base \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Install Claude Code CLI
+RUN curl -fsSL https://claude.ai/install.sh -o claude-install.sh && \
+    chmod +x claude-install.sh && \
+    bash claude-install.sh && \
+    rm claude-install.sh
+
+# Ensure Claude CLI is in PATH
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Set up environment variables
+ENV REPORTPORTAL_PROJECT="osssm_general"
+
+# Repository configuration for fetching latest prompts
+ENV CI_UTILS_REPO_URL="https://github.com/fjglira/ci-utils"
+ENV CI_UTILS_BRANCH="add-claude-container"
+
+# Create secure directories for secrets
+RUN mkdir -p /run/secrets \
+    && chmod 700 /run/secrets
+
+# Create configuration directory
+RUN mkdir -p /root/.config/claude
+
+# Copy configuration and scripts
+COPY claude-config-api.json /root/.config/claude/config.json
+COPY run-confidence-score-api.sh /app/run-confidence-score.sh
+
+# Make scripts executable
+RUN chmod +x /app/run-confidence-score.sh
+
+# Set default working directory
+WORKDIR /app
+
+# Default command
+CMD ["/app/run-confidence-score.sh"]
+
+# Labels for documentation
+LABEL maintainer="Francisco Herrera"
+LABEL description="OSSM Release Confidence Score Calculator using Claude Code CLI + Free API"
+LABEL version="2.1"
+LABEL project="OSSM-11131"
+LABEL auth_method="claude_api"

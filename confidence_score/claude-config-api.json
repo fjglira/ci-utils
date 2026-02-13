@@ -1,0 +1,13 @@
+{
+  "provider": "anthropic",
+  "api_key": "PLACEHOLDER_API_KEY",
+  "default_model": "claude-3-haiku-20240307",
+  "output_format": "text",
+  "mcp_servers": {
+    "reportportal": {
+      "url": "PLACEHOLDER_RP_URL",
+      "token": "PLACEHOLDER_RP_TOKEN",
+      "project": "${REPORTPORTAL_PROJECT}"
+    }
+  }
+}

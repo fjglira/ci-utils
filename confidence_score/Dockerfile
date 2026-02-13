@@ -26,7 +26,10 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.
     rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI
-RUN curl -fsSL https://claude.ai/install.sh | sh
+RUN curl -fsSL https://claude.ai/install.sh -o claude-install.sh && \
+    chmod +x claude-install.sh && \
+    bash claude-install.sh && \
+    rm claude-install.sh
 
 # Ensure Claude CLI and gcloud are in PATH
 ENV PATH="/root/.local/bin:${PATH}"
