@@ -12,6 +12,7 @@ DRY_RUN=false
 
 # Snapshot-derived values (populated by read_snapshot)
 SNAP_OSSM_VERSION=""
+SNAP_OPERATOR_SHA=""
 SNAP_OCP_VERSION=""
 SNAP_ARCH=""
 SNAP_PLATFORM=""
@@ -41,6 +42,9 @@ OPTIONS:
 REQUIRED ENVIRONMENT VARIABLES:
     DEVLAKE_BASE        DevLake base URL (e.g. "https://konflux-devlake-ui-...")
     DEVLAKE_API_KEY     Bearer token (inject via Jenkins withCredentials)
+    COMPONENT           Test component name, used as the job_name prefix segment.
+                        Examples: sail-operator-e2e, kiali-playwright,
+                                  kiali-cypress, kiali-operator, istio-integration
 
 JENKINS-PROVIDED VARIABLES (set automatically or pass from currentBuild):
     BUILD_NUMBER        Jenkins build number                        (automatic)
@@ -50,16 +54,22 @@ JENKINS-PROVIDED VARIABLES (set automatically or pass from currentBuild):
     BUILD_DURATION_MS   currentBuild.duration.toString()            (ms)
 
 OPTIONAL ENVIRONMENT VARIABLES:
-    DEVLAKE_CONNECTION  Connection name  (default: "ossm")
-    DEVLAKE_ORG         Organization     (default: "OSSM")
-    DEVLAKE_REPO        Repository       (default: "downstream-ossm")
-    DEVLAKE_SCOPE_ID    Scope ID         (default: "sail-operator")
-    SNAPSHOT_FILE       Env snapshot path (default: "ossm-env-snapshot.json")
-    JUNIT_FILE          JUnit XML path    (default: "report.xml")
+    DEVLAKE_CONNECTION  Connection name       (default: "ossm")
+    DEVLAKE_ORG         Organization          (default: "OSSM")
+    DEVLAKE_REPO        Repository            (default: "downstream-ossm")
+    DEVLAKE_SCOPE_ID    Scope ID              (default: not sent — set per component,
+                                               e.g. sail-operator, kiali, istio)
+    SNAPSHOT_FILE       Env snapshot path     (default: "ossm-env-snapshot.json")
+    JUNIT_FILE          JUnit XML path        (default: "report.xml")
 
 EXAMPLES:
-    # Dry run to inspect what will be sent (reads snapshot and shows all fields)
-    DEVLAKE_BASE='https://...' DEVLAKE_API_KEY='...' $0 --dry-run --verbose
+    # sail-operator E2E
+    COMPONENT=sail-operator-e2e DEVLAKE_SCOPE_ID=sail-operator \\
+      DEVLAKE_BASE='https://...' DEVLAKE_API_KEY='...' $0 --dry-run --verbose
+
+    # Kiali playwright tests
+    COMPONENT=kiali-playwright DEVLAKE_SCOPE_ID=kiali \\
+      DEVLAKE_BASE='https://...' DEVLAKE_API_KEY='...' $0 --dry-run --verbose
 
     # Jenkins post block (see README for full pipeline snippet)
     # curl -fsSL https://raw.githubusercontent.com/openshift-service-mesh/ci-utils/main/devlake/send_testregistry_results.sh | bash
@@ -116,6 +126,10 @@ validate_environment() {
         missing_vars+=("DEVLAKE_API_KEY")
     fi
 
+    if [[ -z "${COMPONENT:-}" ]]; then
+        missing_vars+=("COMPONENT (e.g. sail-operator-e2e, kiali-playwright, istio-integration)")
+    fi
+
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         log_error "Missing required environment variables:"
         for var in "${missing_vars[@]}"; do
@@ -131,7 +145,7 @@ set_defaults() {
     readonly DEVLAKE_CONNECTION=${DEVLAKE_CONNECTION:-"ossm"}
     readonly DEVLAKE_ORG=${DEVLAKE_ORG:-"OSSM"}
     readonly DEVLAKE_REPO=${DEVLAKE_REPO:-"downstream-ossm"}
-    readonly DEVLAKE_SCOPE_ID=${DEVLAKE_SCOPE_ID:-"sail-operator"}
+    readonly DEVLAKE_SCOPE_ID=${DEVLAKE_SCOPE_ID:-""}
     readonly SNAPSHOT_FILE=${SNAPSHOT_FILE:-"ossm-env-snapshot.json"}
     readonly JUNIT_FILE=${JUNIT_FILE:-"report.xml"}
 
@@ -139,7 +153,8 @@ set_defaults() {
     log_verbose "  DevLake URL:    ${DEVLAKE_BASE}"
     log_verbose "  Connection:     ${DEVLAKE_CONNECTION}"
     log_verbose "  Org/Repo:       ${DEVLAKE_ORG}/${DEVLAKE_REPO}"
-    log_verbose "  Scope:          ${DEVLAKE_SCOPE_ID}"
+    log_verbose "  Component:      ${COMPONENT}"
+    log_verbose "  Scope ID:       ${DEVLAKE_SCOPE_ID:-<not set>}"
     log_verbose "  Snapshot file:  ${SNAPSHOT_FILE}"
     log_verbose "  JUnit file:     ${JUNIT_FILE}"
     log_verbose "  Build number:   ${BUILD_NUMBER:-<not set>}"
@@ -171,6 +186,7 @@ read_snapshot() {
     local snap="$1"
 
     SNAP_OSSM_VERSION=$(jq -r '.ossm.operator_simple_version // empty' "$snap")
+    SNAP_OPERATOR_SHA=$(jq -r '.ossm.operator_image_sha // empty' "$snap" | sed 's/sha256://' | cut -c1-12)
     SNAP_OCP_VERSION=$(jq -r '.ocp.version // empty' "$snap")
     SNAP_ARCH=$(jq -r '.ocp.cluster_arch // "amd64"' "$snap" | tr '[:upper:]' '[:lower:]')
     [[ "${SNAP_ARCH}" == "x86_64" ]] && SNAP_ARCH="amd64"
@@ -183,6 +199,7 @@ read_snapshot() {
 
     log_verbose "Snapshot values:"
     log_verbose "  OSSM version:   ${SNAP_OSSM_VERSION:-<empty>}"
+    log_verbose "  Operator SHA:   ${SNAP_OPERATOR_SHA:-<empty>}"
     log_verbose "  OCP version:    ${SNAP_OCP_VERSION:-<empty>}"
     log_verbose "  Architecture:   ${SNAP_ARCH}"
     log_verbose "  Platform:       ${SNAP_PLATFORM:-<none>}"
@@ -193,24 +210,23 @@ read_snapshot() {
     log_verbose "  Istio version:  ${SNAP_ISTIO_VERSION:-<none>}"
 }
 
-# Build a stable job_name from the snapshot values set by read_snapshot().
-# Pattern: downstream-sail-operator-e2e-sail-operator-release-X.Y-ocp-X.Y-e2e-ocp
-#          [-platform][-arm][-net][-flavor][-fips][-disc][-release-X.Y]
-# Compatible with OSSM Quality dashboard regexes (release-X.Y, ocp-X.Y, arm, -fips).
+# Build a stable job_name from COMPONENT and the snapshot values set by read_snapshot().
+# Pattern: downstream-{COMPONENT}-release-X.Y-ocp-X.Y[-platform][-arm|-arch][-net][-flavor][-fips][-disc][-release-X.Y]
+# Compatible with OSSM Quality dashboard regex: job_name LIKE 'downstream-%'
 build_job_name() {
-    local ossm ocp flags istio_release job_name
+    local ossm_seg ocp_seg flags istio_seg job_name
 
-    ossm=$(awk -F. '{printf "release-%s.%s", $1, $2}' <<< "${SNAP_OSSM_VERSION}")
-    ocp=$(awk -F. '{printf "ocp-%s.%s", $1, $2}' <<< "${SNAP_OCP_VERSION}")
+    ossm_seg=$(awk -F. '{printf "release-%s.%s.%s", $1, $2, $3}' <<< "${SNAP_OSSM_VERSION}")
+    ocp_seg=$(awk -F. '{printf "ocp-%s.%s", $1, $2}' <<< "${SNAP_OCP_VERSION}")
 
     flags=""
     [[ "${SNAP_FIPS}" == "true" ]] && flags+="-fips"
     [[ "${SNAP_DISCONNECTED}" == "true" ]] && flags+="-disc"
 
-    istio_release=""
-    [[ -n "${SNAP_ISTIO_VERSION}" ]] && istio_release="release-${SNAP_ISTIO_VERSION}"
+    istio_seg=""
+    [[ -n "${SNAP_ISTIO_VERSION}" ]] && istio_seg="release-${SNAP_ISTIO_VERSION}"
 
-    job_name="downstream-sail-operator-e2e-sail-operator-${ossm}-${ocp}-e2e-ocp"
+    job_name="downstream-${COMPONENT}-${ossm_seg}-${ocp_seg}"
     [[ -n "${SNAP_PLATFORM}" ]] && job_name+="-${SNAP_PLATFORM}"
     if [[ "${SNAP_ARCH}" == "arm64" ]]; then
         job_name+="-arm"
@@ -220,7 +236,7 @@ build_job_name() {
     [[ -n "${SNAP_NETWORK}" ]] && job_name+="-${SNAP_NETWORK}"
     [[ -n "${SNAP_FLAVOR}" ]] && job_name+="-${SNAP_FLAVOR}"
     job_name+="${flags}"
-    [[ -n "${istio_release}" ]] && job_name+="-${istio_release}"
+    [[ -n "${istio_seg}" ]] && job_name+="-${istio_seg}"
 
     printf '%s' "${job_name}"
 }
@@ -248,7 +264,9 @@ send_results() {
     local job_name result job_id push_url
     job_name=$(build_job_name)
     result=$(map_jenkins_result "${BUILD_RESULT:-UNKNOWN}")
-    job_id="${job_name}-${BUILD_NUMBER:-0}"
+    local sha_suffix=""
+    [[ -n "${SNAP_OPERATOR_SHA}" ]] && sha_suffix="-${SNAP_OPERATOR_SHA}"
+    job_id="${job_name}${sha_suffix}-${BUILD_NUMBER:-0}"
     push_url="${DEVLAKE_BASE}/api/rest/plugins/testregistry/connections/by-name/${DEVLAKE_CONNECTION}/test_results"
 
     log_info "Job ID:   ${job_id}"
@@ -276,13 +294,18 @@ send_results() {
         fi
     fi
 
+    # Optional fields omitted when not set.
+    local scope_fields=()
+    [[ -n "${DEVLAKE_SCOPE_ID}" ]] && scope_fields+=(-F "scopeId=${DEVLAKE_SCOPE_ID}")
+
     if [[ "${DRY_RUN}" == "true" ]]; then
         log_info "DRY RUN: Would POST to ${push_url}"
         log_info "  jobId=${job_id}"
         log_info "  jobName=${job_name}"
         log_info "  organization=${DEVLAKE_ORG}  repository=${DEVLAKE_REPO}"
         log_info "  result=${result}  jobType=jenkins  triggerType=push"
-        log_info "  scopeId=${DEVLAKE_SCOPE_ID}  viewUrl=${BUILD_URL:-}"
+        [[ -n "${DEVLAKE_SCOPE_ID}" ]] && log_info "  scopeId=${DEVLAKE_SCOPE_ID}"
+        log_info "  viewUrl=${BUILD_URL:-}"
         log_info "  junit=@${JUNIT_FILE}"
         if [[ ${#timing_fields[@]} -gt 0 ]]; then
             log_info "  timing: ${timing_fields[*]}"
@@ -292,7 +315,8 @@ send_results() {
 
     log_info "Pushing to DevLake Test Registry..."
 
-    # extraArgs: omit until server has extraArgs support; include when deployed:
+    # extraArgs: omit until server has extraArgs support; include when deployed.
+    # The full snapshot carries operator_image_sha (${SNAP_OPERATOR_SHA}) and all env detail.
     #   -F "extraArgs=@${SNAPSHOT_FILE}"
     local response http_code body
     response=$(curl -s -w "\n%{http_code}" -X POST \
@@ -304,8 +328,8 @@ send_results() {
         -F "result=${result}" \
         -F "jobType=jenkins" \
         -F "triggerType=push" \
-        -F "scopeId=${DEVLAKE_SCOPE_ID}" \
         -F "viewUrl=${BUILD_URL:-}" \
+        "${scope_fields[@]}" \
         "${timing_fields[@]}" \
         -F "junit=@${JUNIT_FILE}" \
         "${push_url}") || { log_error "curl failed (network error)"; exit 1; }
