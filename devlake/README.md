@@ -67,9 +67,8 @@ post {
 }
 ```
 
-> **No internet access on the agent?** Copy `devlake/send_testregistry_results.sh`
-> into the test repository and call it directly:
-> ```groovy
+> Running locally: copy `devlake/send_testregistry_results.sh` into the test repository and call it directly:
+> ```bash
 > sh 'bash devlake/send_testregistry_results.sh'
 > ```
 
@@ -97,9 +96,9 @@ post {
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DEVLAKE_CONNECTION` | `ossm` | Test Registry connection name |
-| `DEVLAKE_ORG` | `OSSM` | Organization |
-| `DEVLAKE_REPO` | `downstream-ossm` | Repository |
+| `DEVLAKE_CONNECTION` | `ossm` | We will use this for all of our Test Registry connection name to be able to later identify and manage connections consistently |
+| `DEVLAKE_ORG` | `OSSM` | Organization in our case |
+| `DEVLAKE_REPO` | `downstream-ossm` | Repository to which the tests belong |
 | `DEVLAKE_SCOPE_ID` | _(not sent)_ | Scope — set per test suite |
 | `SNAPSHOT_FILE` | `ossm-env-snapshot.json` | Path to env snapshot |
 | `JUNIT_FILE` | `report.xml` | Path to JUnit XML |
