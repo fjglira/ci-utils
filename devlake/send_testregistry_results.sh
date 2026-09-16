@@ -197,10 +197,19 @@ read_snapshot() {
     SNAP_DISCONNECTED=$(jq -r '.ocp.is_disconnected // false' "$snap")
     SNAP_ISTIO_VERSION=$(jq -r '(.control_planes // {}) | to_entries[0].value.version // empty' "$snap" | sed 's/^v//')
 
+    if [[ -z "${SNAP_OSSM_VERSION}" ]]; then
+        log_error "Snapshot is missing .ossm.operator_simple_version — cannot build job name"
+        exit 1
+    fi
+    if [[ -z "${SNAP_OCP_VERSION}" ]]; then
+        log_error "Snapshot is missing .ocp.version — cannot build job name"
+        exit 1
+    fi
+
     log_verbose "Snapshot values:"
-    log_verbose "  OSSM version:   ${SNAP_OSSM_VERSION:-<empty>}"
+    log_verbose "  OSSM version:   ${SNAP_OSSM_VERSION}"
     log_verbose "  Operator SHA:   ${SNAP_OPERATOR_SHA:-<empty>}"
-    log_verbose "  OCP version:    ${SNAP_OCP_VERSION:-<empty>}"
+    log_verbose "  OCP version:    ${SNAP_OCP_VERSION}"
     log_verbose "  Architecture:   ${SNAP_ARCH}"
     log_verbose "  Platform:       ${SNAP_PLATFORM:-<none>}"
     log_verbose "  Network type:   ${SNAP_NETWORK:-<none>}"
@@ -264,9 +273,19 @@ send_results() {
     local job_name result job_id push_url
     job_name=$(build_job_name)
     result=$(map_jenkins_result "${BUILD_RESULT:-UNKNOWN}")
+    local build_num
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        build_num="${BUILD_NUMBER:-0}"
+    else
+        if [[ -z "${BUILD_NUMBER:-}" ]]; then
+            log_error "BUILD_NUMBER is required for non-dry-run invocations"
+            exit 1
+        fi
+        build_num="${BUILD_NUMBER}"
+    fi
     local sha_suffix=""
     [[ -n "${SNAP_OPERATOR_SHA}" ]] && sha_suffix="-${SNAP_OPERATOR_SHA}"
-    job_id="${job_name}${sha_suffix}-${BUILD_NUMBER:-0}"
+    job_id="${job_name}${sha_suffix}-${build_num}"
     push_url="${DEVLAKE_BASE}/api/rest/plugins/testregistry/connections/by-name/${DEVLAKE_CONNECTION}/test_results"
 
     log_info "Job ID:   ${job_id}"

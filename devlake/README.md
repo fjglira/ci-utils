@@ -67,8 +67,9 @@ post {
 }
 ```
 
-> Running locally: copy `devlake/send_testregistry_results.sh` into the test repository and call it directly:
-> ```bash
+> **No internet access on the agent?** Copy `devlake/send_testregistry_results.sh`
+> into the test repository and call it directly:
+> ```groovy
 > sh 'bash devlake/send_testregistry_results.sh'
 > ```
 
